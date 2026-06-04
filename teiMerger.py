@@ -1,0 +1,145 @@
+import importlib
+import re
+import json
+from pathlib import Path
+import teiconversion
+
+# Ricarichiamo teiconversion per sicurezza
+importlib.reload(teiconversion) 
+
+input_file = "clean_corpus.json"
+output_file = Path("src/assets/data/canti_completi.xml")
+
+def build_global_header(all_witnesses):
+    list_wit = teiconversion.build_witness_list(sorted(all_witnesses))
+    return f"""  <teiHeader>
+      <fileDesc>
+        <titleStmt>
+          <title>Canti</title>
+          <author>Giacomo Leopardi</author>
+          <respStmt>
+            <resp>Encoded by</resp>
+            <persName>Chiara Picardi</persName>
+          </respStmt>
+        </titleStmt>
+        <publicationStmt>
+          <publisher>Progetto Canti - Edizione F31</publisher>
+          <date when="2024">2024</date>
+          <availability status="free">
+            <licence target="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</licence>
+          </availability>
+        </publicationStmt>
+        <sourceDesc>
+          <bibl>Edizione Fiorentina - F31 (1831)</bibl>
+{list_wit}
+        </sourceDesc>
+      </fileDesc>
+      <encodingDesc>
+        <variantEncoding method="parallel-segmentation" location="internal"/>
+      </encodingDesc>
+    </teiHeader>"""
+
+def run_merge():
+    with open(input_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    global_witnesses = set()
+    all_facs = {}  
+    elaborated_ids = set()
+
+    for key, text in data.items():
+        header_part = text.split(teiconversion.poem_tag, 1)[0] if teiconversion.poem_tag in text else text
+        for w in teiconversion.extract_witnesses(header_part):
+            global_witnesses.add(w)
+
+    divs = []
+    for key, text in data.items():
+        try:
+            normalized_key = re.sub(r'\s+p\s*[\._]?\s*(\d+)', r' p_\1', key, flags=re.IGNORECASE)
+            normalized_key = re.sub(r'\s+p_(\d+)', r' p_\1', normalized_key)
+            
+            safe_id = teiconversion.make_safe_id(normalized_key)
+            if safe_id in elaborated_ids:
+                print(f" ✗ {key}: Duplicate ID '{safe_id}' detected. Skipping.")
+                continue
+            elaborated_ids.add(safe_id)
+            
+            header_part = text.split(teiconversion.poem_tag, 1)[0] if teiconversion.poem_tag in text else text
+            page_witnesses = teiconversion.extract_witnesses(header_part)
+            if not page_witnesses or page_witnesses == [teiconversion.main_witness]:
+                body_wits = sorted(w for w in global_witnesses if w != teiconversion.main_witness)
+                head_wits = sorted(list(global_witnesses))
+            else:
+                body_wits = page_witnesses
+                head_wits = list(page_witnesses)
+                if teiconversion.main_witness not in head_wits:
+                    head_wits.append(teiconversion.main_witness)
+
+            facs_files = teiconversion.extract_facsimiles(text)
+            for f in facs_files:
+                all_facs[f["xml_id"]] = f["filename"]
+
+            # Se manca il tag <pb>, lo iniettiamo nel testo prima di convertirlo
+            if not re.search(r'<pb\s+n=', text) and facs_files:
+                page_num_match = re.search(r"p\.\s*(\d+)", key, flags=re.IGNORECASE)
+                if page_num_match:
+                    text = f'<pb n="{page_num_match.group(1)}"/>\n' + text
+
+            # Estremi rimedi: togliamo </poem> a prescindere prima di ogni cosa
+            clean_text = text.replace('</poem>', '').replace('</POEM>', '')
+
+            # Usiamo convert() per assicurarci che tutta la pulizia del testo avvenga!
+            full_page_xml = teiconversion.convert(key, clean_text, body_wits, head_wits)
+
+            # Estraiamo SOLO il tag <div> che ci interessa dal risultato
+            div_match = re.search(r'(<div\s+type=.*?</div>)', full_page_xml, re.DOTALL | re.IGNORECASE)
+            if div_match:
+                page_div = div_match.group(1)
+            else:
+                page_div = full_page_xml.replace('<text>', '').replace('</text>', '').replace('<body>', '').replace('</body>', '')
+
+            # Pulizia extra per accontentare EVT
+            page_div = page_div.replace('</poem>', '')
+            page_div = re.sub(r'<l[^>]*>\(\)\.?</l>\s*', '', page_div) # rimuove i versi vuoti con ()
+
+            divs.append(page_div)
+            print(f" ✓ {key}")
+
+        except Exception as e:
+            print(f" ✗ {key}: {e}")
+
+    facs_lines = ["  <facsimile>"]
+    for xml_id, filename in all_facs.items():
+        facs_lines.append(f'    <surface xml:id="{xml_id}">')
+        facs_lines.append(f'      <graphic url="./assets/img/{filename}"/>')
+        facs_lines.append('    </surface>')
+    facs_lines.append("  </facsimile>")
+    facsimile_block = "\n".join(facs_lines)
+
+    header = build_global_header(global_witnesses)
+    body_block = "\n".join(divs)
+
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<TEI xmlns="http://www.tei-c.org/ns/1.0">\n'
+        f"{header}\n"
+        f"\n{facsimile_block}\n"
+        f"\n  <text>\n"
+        f"    <body>\n"
+        f'      <div type="corpus" xml:id="canti_leopardi_completi">\n'
+        f"{body_block}\n"
+        f"      </div>\n"
+        f"    </body>\n"
+        f"  </text>\n"
+        "</TEI>\n"
+    )
+
+    output_file.parent.mkdir(exist_ok=True)
+    output_file.write_text(xml, encoding="utf-8")
+    print(f"\n✓ File unificato creato: {output_file}")
+
+if __name__ == "__main__":
+    run_merge()
+    print("--- Operazioni completate ---")
+
+
