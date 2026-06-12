@@ -12,13 +12,17 @@
         </titleStmt>
         <publicationStmt>
           <publisher>Progetto Canti - Edizione F31</publisher>
-          <date when="2024">2024</date>
+          <date when="2026">2026</date>
           <availability status="free">
             <licence target="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</licence>
           </availability>
         </publicationStmt>
         <sourceDesc>
-          <bibl>Edizione Fiorentina - F31 (1831)</bibl>
+          <bibl>
+          <title>Wikileopardi. Canti 1831 edition.</title>
+          <date>2020</date>
+          <note>Corpus of Canti extracted from Wikileopardi's platform.</note>
+          </bibl>
 <listWit>
           <witness xml:id="B20">B20</witness>
           <witness xml:id="B24">B24</witness>
@@ -29,9 +33,6 @@
         </listWit>
         </sourceDesc>
       </fileDesc>
-      <encodingDesc>
-        <variantEncoding method="parallel-segmentation" location="internal"/>
-      </encodingDesc>
     </teiHeader>
 
   <facsimile>
